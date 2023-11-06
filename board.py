@@ -1,9 +1,10 @@
-import copy
+import copy, random
 from tetromino import *
+from direction import *
+from rotation import *
 
 class Board:
-    _lineScores = (0, 40, 100, 300, 1200)
-    _levelPoints = (0, 1, 3, 5, 8)
+    _lineScores = (0, 1, 3, 5, 8)
 
     def emptyGrid(self):
         self.grid = {}
@@ -17,7 +18,7 @@ class Board:
     def __init__(self, colour = "Gray"):
         self.colour = colour
         self.width = 10
-        self.height = 20
+        self.height = 21
         self.heldPiece = None
         self.startInterval = 1000
         self.score = 0
@@ -25,6 +26,8 @@ class Board:
         self.level = 1
         self.levelScore = 0 
         self.emptyGrid()
+        self.holeCount = None
+        self.pieceList = []
 
     def setHeldPiece(self, tetromino):
         self.heldPiece = Tetromino(tetromino.shape, tetromino.rotations, tetromino.colour)
@@ -41,14 +44,17 @@ class Board:
         return (tetromino)
 
     def centrePiece(self, tetromino):
-        tetromino.centre[0] = tetromino.centre[0] + (self.width/2) - 1
+        tetromino.centre[0] = tetromino.centre[0] + (self.width/2) - 2
         for coord in tetromino.vertexCoords:
-            coord[0] += (self.width/2) - 1
+            coord[0] += (self.width/2) - 2
         for coord in tetromino.blockCoords:
-            coord[0] += (self.width/2) - 1 
+            coord[0] += (self.width/2) - 2 
         
     def generatePiece(self):
-        tetromino = Tetromino()
+        if (len(self.pieceList) == 0):
+            self.pieceList = list(Tetromino._allShapes.keys())
+            random.shuffle(self.pieceList)
+        tetromino = Tetromino(self.pieceList.pop())
         self.centrePiece(tetromino)
         return (tetromino)
 
@@ -62,33 +68,25 @@ class Board:
         else:
             return False
 
-    def moveOrLockPiece(self, tetromino, direction):
-        x = 0
-        y = 0
-        if direction == "right":
-            x = 1
-        elif direction == "left":
-            x = -1
-        elif direction == "down":
-            y = 1
-        tetromino.incrementCoords(x,y)
-
-        if (self.isOutOfBounds(tetromino) or self.isGridBlocked(tetromino)):
-            tetromino.incrementCoords(-x,-y)
-            if (y != 0):
-                self.lockPieceOnGrid(tetromino)
-                clearedRowCount = self.clearFullRows()
-                self.updateScores(clearedRowCount)
-            return True
+    def moveOrLockPiece(self, tetromino, direction, count = 1):
+        x = direction.value[0]
+        y = direction.value[1]
+        for i in range(count):
+            tetromino.incrementCoords(x, y)
+            if (self.isOutOfBounds(tetromino) or self.isGridBlocked(tetromino)):
+                tetromino.incrementCoords(-x,-y)
+                if (y > 0):
+                    self.lockPieceOnGrid(tetromino)
+                    clearedRowCount = self.clearFullRows()
+                    self.updateScores(clearedRowCount)
+                    return True
         return False
 
     def updateScores(self, clearedRowCount):
         self.linesCleared += clearedRowCount
-        self.levelScore += self._levelPoints[clearedRowCount]
-        if (self.levelScore // self.level) >= 5:
-            self.level += 1
-            self.levelScore = 0
-        self.score += self._lineScores[clearedRowCount]
+        self.score += (self._lineScores[clearedRowCount] * self.level)
+        if (self.level < 15):
+            self.level = (self.linesCleared // 10) + 1
 
     def getDropInterval(self):
         scale = pow(0.8, self.level)
@@ -126,17 +124,14 @@ class Board:
                     self.grid[i] = copy.deepcopy(self.grid[i-1])
                 y += 1
             y-=1
-        #This would occur if none of rows are empty or filled
         return fullRowCount
          
-    def rotatePiece(self, tetromino, direction = None):
-        if direction == "clockwise":
-            rotation = 1
-        elif direction == "anticlockwise":
-            rotation = -1
-        tetromino.rotateCoords(rotation)
-        if (self.isOutOfBounds(tetromino) or self.isGridBlocked(tetromino)):
-            tetromino.rotateCoords(-rotation)
+    def rotatePiece(self, tetromino, rotation = None, count = 1):
+        for i in range(count):
+            tetromino.rotateCoords(rotation)
+            if (self.isOutOfBounds(tetromino) or self.isGridBlocked(tetromino)):
+                tetromino.rotateCoords(-rotation)
+                break
 
     def newPieceOrGameOver(self, tetromino):
         if (tetromino.xOffset == 0) and (tetromino.yOffset == 0):
@@ -145,7 +140,16 @@ class Board:
             tetromino = self.generatePiece()
             return tetromino
     
-    def fastDropPiece(self, tetromino):
+    def dropAndLockPiece(self, tetromino):
         isLocked = False
         while (not isLocked):
-            isLocked = self.moveOrLockPiece(tetromino,"down")
+            isLocked = self.moveOrLockPiece(tetromino,Direction.DOWN)
+
+    def dropPieceWithoutLock(self, tetromino):
+            while not ((self.isOutOfBounds(tetromino) or self.isGridBlocked(tetromino))):
+                tetromino.incrementCoords(0, 1)
+            tetromino.incrementCoords(0, -1)
+    
+    def moveLeftAndLockPiece(self, tetromino, count):
+        self.moveOrLockPiece(tetromino, Direction.LEFT, count)
+        self.dropAndLockPiece(tetromino)
